@@ -46,3 +46,39 @@ func WhiteFill(t screen.Texture) {
 func GreenFill(t screen.Texture) {
 	t.Fill(t.Bounds(), color.RGBA{G: 0xff, A: 0xff}, screen.Src)
 }
+
+type BgRectOp struct {
+	X1 int
+	Y1 int
+	X2 int
+	Y2 int
+}
+
+type FigureOp struct {
+	X int
+	Y int
+}
+
+type MoveOp struct {
+	X int
+	Y int
+}
+
+func (op *BgRectOp) Do(t screen.Texture) bool {
+	// TODO: Implement an operation
+	return false
+}
+
+func (op *FigureOp) Do(t screen.Texture) bool {
+	// TODO: Implement an operation
+	return false
+}
+
+func (op *MoveOp) Do(t screen.Texture) bool {
+	// TODO: Implement an operation
+	return false
+}
+
+func Reset(t screen.Texture) {
+	// TODO: Implement an operation
+}
