@@ -16,6 +16,8 @@ import (
 	"golang.org/x/mobile/event/size"
 )
 
+const WINDOW_SIZE = 800
+
 // Змінні для координат фігури
 var figureX, figureY int = 400, 400 // Початкові координати фігури (центральні)
 
@@ -46,8 +48,8 @@ func (pw *Visualizer) Update(t screen.Texture) {
 
 func (pw *Visualizer) run(s screen.Screen) {
 	w, err := s.NewWindow(&screen.NewWindowOptions{
-		Title: pw.Title,
-		Width: 800, // Вікно розміру 800x800 px
+		Title:  pw.Title,
+		Width:  800, // Вікно розміру 800x800 px
 		Height: 800,
 	})
 	if err != nil {
