@@ -16,6 +16,9 @@ import (
 	"golang.org/x/mobile/event/size"
 )
 
+// Змінні для координат фігури
+var figureX, figureY int = 400, 400 // Початкові координати фігури (центральні)
+
 type Visualizer struct {
 	Title         string
 	Debug         bool
@@ -44,6 +47,8 @@ func (pw *Visualizer) Update(t screen.Texture) {
 func (pw *Visualizer) run(s screen.Screen) {
 	w, err := s.NewWindow(&screen.NewWindowOptions{
 		Title: pw.Title,
+		Width: 800, // Вікно розміру 800x800 px
+		Height: 800,
 	})
 	if err != nil {
 		log.Fatal("Failed to initialize the app window:", err)
@@ -106,24 +111,24 @@ func detectTerminate(e any) bool {
 
 func (pw *Visualizer) handleEvent(e any, t screen.Texture) {
 	switch e := e.(type) {
-
-	case size.Event: // Оновлення даних про розмір вікна.
+	case size.Event: // Оновлення розміру вікна.
 		pw.sz = e
 
 	case error:
 		log.Printf("ERROR: %s", e)
 
 	case mouse.Event:
-		if t == nil {
-			// TODO: Реалізувати реакцію на натискання кнопки миші.
+		if e.Button == mouse.ButtonRight && e.Direction == mouse.DirPress {
+			// Переміщення фігури до нової позиції миші
+			figureX, figureY = int(e.X), int(e.Y)
+			pw.w.Send(paint.Event{}) // Оновлення малюнку
 		}
 
 	case paint.Event:
-		// Малювання контенту вікна.
+		// Малювання контенту.
 		if t == nil {
 			pw.drawDefaultUI()
 		} else {
-			// Використання текстури отриманої через виклик Update.
 			pw.w.Scale(pw.sz.Bounds(), t, t.Bounds(), draw.Src, nil)
 		}
 		pw.w.Publish()
@@ -131,12 +136,30 @@ func (pw *Visualizer) handleEvent(e any, t screen.Texture) {
 }
 
 func (pw *Visualizer) drawDefaultUI() {
-	pw.w.Fill(pw.sz.Bounds(), color.Black, draw.Src) // Фон.
+	// Зелений фон
+	pw.w.Fill(pw.sz.Bounds(), color.RGBA{G: 255, A: 255}, draw.Src)
 
-	// TODO: Змінити колір фону та додати відображення фігури у вашому варіанті.
-
-	// Малювання білої рамки.
+	// Білий контур
 	for _, br := range imageutil.Border(pw.sz.Bounds(), 10) {
 		pw.w.Fill(br, color.White, draw.Src)
 	}
+
+	// Фігура Т-0 синього кольору
+	blue := color.RGBA{B: 255, A: 255}
+	cellSize := 40
+
+	// Початкові координати фігури повинні бути по центру вікна
+	startX := figureX - cellSize*3/2 // Центруємо по горизонталі (для фігури "Т")
+	startY := figureY - cellSize*2   // Центруємо по вертикалі (для фігури "Т")
+
+	// Верхній ряд фігури (3 квадрати)
+	for i := 0; i < 3; i++ {
+		rect := image.Rect(startX+i*cellSize, startY, startX+(i+1)*cellSize, startY+cellSize)
+		pw.w.Fill(rect, blue, draw.Src)
+	}
+
+	// Нижній блок (під центральним верхнім)
+	centerX := startX + cellSize
+	rect := image.Rect(centerX, startY+cellSize, centerX+cellSize, startY+2*cellSize)
+	pw.w.Fill(rect, blue, draw.Src)
 }
