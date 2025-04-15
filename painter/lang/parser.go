@@ -3,95 +3,185 @@ package lang
 import (
 	"bufio"
 	"errors"
-	"github.com/roman-mazur/architecture-lab-3/painter"
-	"github.com/roman-mazur/architecture-lab-3/ui"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
+
+	"github.com/roman-mazur/architecture-lab-3/painter"
+	"github.com/roman-mazur/architecture-lab-3/ui"
 )
 
 // Parser уміє прочитати дані з вхідного io.Reader та повернути список операцій представлені вхідним скриптом.
 type Parser struct {
-	// Наразі структура порожня, але може містити внутрішній стан, якщо знадобиться.
+
+	figures     []*painter.FigureOp
+	moveOps     []painter.Operation
+	lastBgColor painter.Operation
+	lastBgRect  *painter.BgRectOp
+	updateOp    painter.Operation
+
+}
+
+// initializeParserState ініціалізує початковий стан парсера
+func (p *Parser) initializeParserState() {
+
+	if p.lastBgColor == nil {
+
+		p.lastBgColor = painter.OperationFunc(painter.Reset)
+
+	}
+
+	if p.updateOp != nil {
+
+		p.updateOp = nil
+
+	}
 }
 
 // Parse читає вхідний потік (наприклад, тіло HTTP запиту), розбиває його на рядки,
 // виконує парсинг кожного рядка та повертає список painter.Operation.
 // Якщо виникає помилка при парсингу якоїсь команди, повертається відповідна помилка.
 func (p *Parser) Parse(in io.Reader) ([]painter.Operation, error) {
+
+	p.initializeParserState()
 	scanner := bufio.NewScanner(in)
 	scanner.Split(bufio.ScanLines)
-	var res []painter.Operation
-
+	
 	for scanner.Scan() {
+
 		command := scanner.Text()
-		comm, args, err := parseLine(command)
-		if err != nil {
-			return nil, err
-		}
-		op, err := mapToOp(comm, args)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, op)
-	}
+		err := p.parse(command)
 
-	return res, nil
+		if err != nil {
+
+			return nil, err
+
+		}
+
+	}
+	
+	return p.finalParseResult(), nil
+
 }
 
-// parseLine розбиває рядок на команду та аргументи.
-// Повертає:
-//   - comm: перше слово як назва команди;
-//   - args: перетворені в int значення для решти полів;
-//     перетворення здійснюється через виклик generic-функції Map із використанням floatStrToInt.
-//
-// Якщо рядок порожній або аргументи не є числами, повертається відповідна помилка.
-func parseLine(line string) (comm string, args []int, err error) {
-	fields := strings.Fields(line)
+// finalParseResult формує кінцевий список операцій на основі поточного стану парсера
+func (p *Parser) finalParseResult() []painter.Operation {
+
+	var res []painter.Operation
+	
+	if p.lastBgColor != nil {
+
+		res = append(res, p.lastBgColor)
+
+	}
+	
+	if p.lastBgRect != nil {
+
+		res = append(res, p.lastBgRect)
+
+	}
+	
+	if len(p.moveOps) != 0 {
+
+		res = append(res, p.moveOps...)
+
+	}
+	p.moveOps = nil
+	
+	if len(p.figures) != 0 {
+
+		for _, figure := range p.figures {
+
+			res = append(res, figure)
+		}
+	}
+	
+	if p.updateOp != nil {
+
+		res = append(res, p.updateOp)
+
+	}
+	
+	return res
+
+}
+
+// resetParserState скидає стан парсера
+func (p *Parser) resetParserState() {
+
+	p.figures = nil
+	p.moveOps = nil
+	p.lastBgColor = nil
+	p.lastBgRect = nil
+	p.updateOp = nil
+
+}
+
+// parse обробляє окремий рядок команди
+func (p *Parser) parse(commandLine string) error {
+
+	fields := strings.Fields(commandLine)
+
 	if len(fields) == 0 {
-		return "", nil, errors.New("line is empty")
-	}
 
-	nums, err := Map(fields[1:], floatStrToInt)
-	if err != nil {
-		return "", nil, errors.New("args are not integers")
-	}
-	return fields[0], nums, nil
-}
+		return errors.New("line is empty")
 
-// mapToOp приймає назву команди (comm) та числові аргументи (args)
-// і повертає відповідну операцію (яка реалізує painter.Operation) для виклику.
-// Якщо команда не підтримується, повертається помилка.
-func mapToOp(comm string, args []int) (painter.Operation, error) {
+	}
+	
+	comm := fields[0]
+	args, err := Map(fields[1:], floatStrToInt)
+
+	if err != nil && len(fields) > 1 {
+
+		return errors.New("args are not integers")
+		
+	}
+	
 	switch comm {
 	case "white":
-		return painter.OperationFunc(painter.WhiteFill), nil
+		p.lastBgColor = painter.OperationFunc(painter.WhiteFill)
 	case "green":
-		return painter.OperationFunc(painter.GreenFill), nil
+		p.lastBgColor = painter.OperationFunc(painter.GreenFill)
 	case "update":
-		return painter.UpdateOp, nil
+		p.updateOp = painter.UpdateOp
 	case "bgrect":
-		return &painter.BgRectOp{
+		if len(args) < 4 {
+			return errors.New("not enough arguments for bgrect")
+		}
+		p.lastBgRect = &painter.BgRectOp{
 			X1: args[0],
 			Y1: args[1],
 			X2: args[2],
 			Y2: args[3],
-		}, nil
+		}
 	case "figure":
-		return &painter.FigureOp{
+		if len(args) < 2 {
+			return errors.New("not enough arguments for figure")
+		}
+		figure := &painter.FigureOp{
 			X: args[0],
 			Y: args[1],
-		}, nil
+		}
+		p.figures = append(p.figures, figure)
 	case "move":
-		return &painter.MoveOp{
-			X: args[0],
-			Y: args[1],
-		}, nil
+		if len(args) < 2 {
+			return errors.New("not enough arguments for move")
+		}
+		moveOp := &painter.MoveOp{
+			X:       args[0],
+			Y:       args[1],
+			Figures: p.figures,
+		}
+		p.moveOps = append(p.moveOps, moveOp)
 	case "reset":
-		return painter.OperationFunc(painter.Reset), nil
+		p.resetParserState()
+		p.lastBgColor = painter.OperationFunc(painter.Reset)
 	default:
-		return nil, errors.New("unknown command: " + comm)
+		return fmt.Errorf("unknown command: %s", comm)
 	}
+	
+	return nil
 }
 
 // Map — узагальнена функція, яка приймає слайс in типу T, застосовує до кожного елемента функцію f,
