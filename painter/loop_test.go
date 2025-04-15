@@ -4,103 +4,136 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
-	"reflect"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"golang.org/x/exp/shiny/screen"
 )
 
-func TestLoop_Post(t *testing.T) {
-	var (
-		l  Loop
-		tr testReceiver
-	)
-	l.Receiver = &tr
-
-	var testOps []string
-
-	l.Start(mockScreen{})
-	l.Post(logOp(t, "do white fill", WhiteFill))
-	l.Post(logOp(t, "do green fill", GreenFill))
-	l.Post(UpdateOp)
-
-	for i := 0; i < 3; i++ {
-		go l.Post(logOp(t, "do green fill", GreenFill))
-	}
-
-	l.Post(OperationFunc(func(screen.Texture) {
-		testOps = append(testOps, "op 1")
-		l.Post(OperationFunc(func(screen.Texture) {
-			testOps = append(testOps, "op 2")
-		}))
-	}))
-	l.Post(OperationFunc(func(screen.Texture) {
-		testOps = append(testOps, "op 3")
-	}))
-
-	l.StopAndWait()
-
-	if tr.lastTexture == nil {
-		t.Fatal("Texture was not updated")
-	}
-	mt, ok := tr.lastTexture.(*mockTexture)
-	if !ok {
-		t.Fatal("Unexpected texture", tr.lastTexture)
-	}
-	if mt.Colors[0] != color.White {
-		t.Error("First color is not white:", mt.Colors)
-	}
-	if len(mt.Colors) != 2 {
-		t.Error("Unexpected size of colors:", mt.Colors)
-	}
-
-	if !reflect.DeepEqual(testOps, []string{"op 1", "op 2", "op 3"}) {
-		t.Error("Bad order:", testOps)
-	}
+type Mock struct {
+	mock.Mock
 }
 
-func logOp(t *testing.T, msg string, op OperationFunc) OperationFunc {
-	return func(tx screen.Texture) {
-		t.Log(msg)
-		op(tx)
-	}
+func (_ *Mock) NewBuffer(size image.Point) (screen.Buffer, error) {
+	return nil, nil
 }
 
-type testReceiver struct {
-	lastTexture screen.Texture
+func (_ *Mock) NewWindow(opts *screen.NewWindowOptions) (screen.Window, error) {
+	return nil, nil
 }
 
-func (tr *testReceiver) Update(t screen.Texture) {
-	tr.lastTexture = t
+func (m *Mock) Update(texture screen.Texture) {
+	m.Called(texture)
 }
 
-type mockScreen struct{}
-
-func (m mockScreen) NewBuffer(size image.Point) (screen.Buffer, error) {
-	panic("implement me")
+func (m *Mock) NewTexture(size image.Point) (screen.Texture, error) {
+	args := m.Called(size)
+	return args.Get(0).(screen.Texture), args.Error(1)
 }
 
-func (m mockScreen) NewTexture(size image.Point) (screen.Texture, error) {
-	return new(mockTexture), nil
+func (m *Mock) Release() {
+	m.Called()
 }
 
-func (m mockScreen) NewWindow(opts *screen.NewWindowOptions) (screen.Window, error) {
-	panic("implement me")
+func (m *Mock) Upload(dp image.Point, src screen.Buffer, sr image.Rectangle) {
+	m.Called(dp, src, sr)
 }
 
-type mockTexture struct {
-	Colors []color.Color
+func (m *Mock) Bounds() image.Rectangle {
+	args := m.Called()
+	return args.Get(0).(image.Rectangle)
 }
 
-func (m *mockTexture) Release() {}
-
-func (m *mockTexture) Size() image.Point { return size }
-
-func (m *mockTexture) Bounds() image.Rectangle {
-	return image.Rectangle{Max: m.Size()}
+func (m *Mock) Fill(dr image.Rectangle, src color.Color, op draw.Op) {
+	m.Called(dr, src, op)
 }
 
-func (m *mockTexture) Upload(dp image.Point, src screen.Buffer, sr image.Rectangle) {}
-func (m *mockTexture) Fill(dr image.Rectangle, src color.Color, op draw.Op) {
-	m.Colors = append(m.Colors, src)
+func (m *Mock) Size() image.Point {
+	args := m.Called()
+	return args.Get(0).(image.Point)
+}
+
+func (m *Mock) Do(t screen.Texture) bool {
+	args := m.Called(t)
+	return args.Bool(0)
+}
+
+// Допоміжні функції
+
+// newLoopWithMocks створює підготовлений тестовий цикл Loop з усіма необхідними моками.
+// Повертає: цикл рендерингу, мок текстури, мок приймача (Receiver) та мок екрану (screen)
+func newLoopWithMocks(t *testing.T) (*Loop, *Mock, *Mock, *Mock) {
+	textureSize := image.Pt(400, 400)
+
+	textureMock := new(Mock)
+	receiverMock := new(Mock)
+	screenMock := new(Mock)
+
+	screenMock.On("NewTexture", textureSize).Return(textureMock, nil)
+	receiverMock.On("Update", textureMock).Return()
+
+	loop := &Loop{Receiver: receiverMock}
+	loop.Start(screenMock)
+
+	textureMock.On("Bounds").Return(image.Rectangle{})
+
+	return loop, textureMock, receiverMock, screenMock
+}
+
+// waitForProcessing робить коротку паузу, щоб дати час циклe Loop обробити чергу.
+func waitForProcessing() {
+	time.Sleep(100 * time.Millisecond)
+}
+
+// Тести
+
+func TestPostSingleSuccess(t *testing.T) {
+	loop, textureMock, receiverMock, screenMock := newLoopWithMocks(t)
+
+	op := new(Mock)
+	op.On("Do", textureMock).Return(true)
+
+	loop.Post(op)
+	waitForProcessing()
+
+	op.AssertCalled(t, "Do", textureMock)
+	receiverMock.AssertCalled(t, "Update", textureMock)
+	screenMock.AssertCalled(t, "NewTexture", image.Pt(400, 400))
+	assert.Empty(t, loop.mq.Queue)
+}
+
+func TestPostMultipleSuccess(t *testing.T) {
+	loop, textureMock, receiverMock, screenMock := newLoopWithMocks(t)
+
+	op1 := new(Mock)
+	op2 := new(Mock)
+	op1.On("Do", textureMock).Return(true)
+	op2.On("Do", textureMock).Return(true)
+
+	loop.Post(op1)
+	loop.Post(op2)
+	waitForProcessing()
+
+	op1.AssertCalled(t, "Do", textureMock)
+	op2.AssertCalled(t, "Do", textureMock)
+	receiverMock.AssertCalled(t, "Update", textureMock)
+	screenMock.AssertCalled(t, "NewTexture", image.Pt(400, 400))
+	assert.Empty(t, loop.mq.Queue)
+}
+
+func TestPostSingleFailure(t *testing.T) {
+	loop, textureMock, receiverMock, screenMock := newLoopWithMocks(t)
+
+	op := new(Mock)
+	op.On("Do", textureMock).Return(false)
+
+	loop.Post(op)
+	waitForProcessing()
+
+	op.AssertCalled(t, "Do", textureMock)
+	receiverMock.AssertNotCalled(t, "Update", textureMock)
+	screenMock.AssertCalled(t, "NewTexture", image.Pt(400, 400))
+	assert.Empty(t, loop.mq.Queue)
 }
