@@ -1,7 +1,9 @@
 package painter
 
 import (
+	"image"
 	"image/color"
+	"image/draw"
 
 	"golang.org/x/exp/shiny/screen"
 )
@@ -62,23 +64,45 @@ type FigureOp struct {
 type MoveOp struct {
 	X int
 	Y int
+	Figures []*FigureOp
 }
 
+// Do виконує операцію на об'єкті BgRectOp, заповнюючи прямокутник чорним кольором на переданому текстурному об'єкті
 func (op *BgRectOp) Do(t screen.Texture) bool {
-	// TODO: Implement an operation
+
+	t.Fill(image.Rect(op.X1, op.Y1, op.X2, op.Y2), color.RGBA{0, 0, 0, 255}, screen.Src)
+
 	return false
+
 }
 
+// Do виконує операцію на об'єкті FigureOp, малюючи T-образну фігуру на текстурі.
 func (op *FigureOp) Do(t screen.Texture) bool {
-	// TODO: Implement an operation
+
+	t.Fill(image.Rect(op.X-60, op.Y-40, op.X+60, op.Y), color.RGBA{0, 0, 255, 255}, draw.Src)
+	t.Fill(image.Rect(op.X-20, op.Y, op.X+20, op.Y+40), color.RGBA{0, 0, 255, 255}, draw.Src)
+
 	return false
+
 }
 
+// Do виконує операцію переміщення всіх фігур FigureOp на екран з вказаними зміщеннями по осях X та Y.
 func (op *MoveOp) Do(t screen.Texture) bool {
-	// TODO: Implement an operation
+
+	for i := range op.Figures {
+
+		op.Figures[i].Y += op.Y
+		op.Figures[i].X += op.X
+
+	}
+
 	return false
+	
 }
 
+// Reset скидає текстуру до її початкового стану, заповнюючи всю область текстури чорним кольором.
 func Reset(t screen.Texture) {
-	// TODO: Implement an operation
+
+	t.Fill(t.Bounds(), color.RGBA{0, 0, 0, 255}, draw.Src)
+
 }
